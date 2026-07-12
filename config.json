@@ -1,0 +1,14 @@
+{
+  "default_users": [
+    {"username": "student1", "password": "s123", "role": "student"},
+    {"username": "teacher1", "password": "t123", "role": "teacher"},
+    {"username": "Mr. Sharma", "password": "t123", "role": "teacher"},
+    {"username": "Ms. Roy", "password": "t123", "role": "teacher"},
+    {"username": "Dr. Sen", "password": "t123", "role": "teacher"}
+  ],
+  "default_subjects": [
+    "Math",
+    "Science",
+    "English"
+  ]
+}

@@ -35,13 +35,13 @@ class StudentDashboardFrame(tk.Frame):
 
         # Subject Combobox
         tk.Label(left_frame, text="Subject", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(5, 2))
-        self.subj_combo = ttk.Combobox(left_frame, values=["Math", "Science", "English"], state="readonly", font=style.FONT_INPUT)
+        self.subj_combo = ttk.Combobox(left_frame, values=self.store.get_subjects(), state="readonly", font=style.FONT_INPUT)
         self.subj_combo.pack(fill="x", pady=(0, 10))
         self.subj_combo.set("Select Subject")
 
         # Teacher Combobox
         tk.Label(left_frame, text="Teacher", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(5, 2))
-        self.teacher_combo = ttk.Combobox(left_frame, values=["Mr. Sharma", "Ms. Roy", "Dr. Sen"], state="readonly", font=style.FONT_INPUT)
+        self.teacher_combo = ttk.Combobox(left_frame, values=self.store.get_teachers(), state="readonly", font=style.FONT_INPUT)
         self.teacher_combo.pack(fill="x", pady=(0, 10))
         self.teacher_combo.set("Select Teacher")
 
