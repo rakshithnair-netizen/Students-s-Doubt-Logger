@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from . import style
+from .chat import ChatFrame
 
 class StudentDashboardFrame(tk.Frame):
     def __init__(self, parent, store, username):
@@ -101,9 +102,11 @@ class StudentDashboardFrame(tk.Frame):
             relief="solid"
         )
         right_frame.pack(side="right", fill="both", expand=True)
+        self.right_frame = right_frame
 
         tree_container = tk.Frame(right_frame, bg=style.BG_CARD)
         tree_container.pack(fill="both", expand=True)
+        self.tree_container = tree_container
 
         cols = ("ID", "Subject", "Teacher", "Severity", "Urgent", "Needs Explanation", "Description", "Reply")
         self.tree = ttk.Treeview(tree_container, columns=cols, show="headings")
@@ -133,6 +136,7 @@ class StudentDashboardFrame(tk.Frame):
             self.tree.heading(col, text=col, anchor="w")
             self.tree.column(col, width=col_widths[col], minwidth=50, stretch=True)
 
+        self.tree.bind("<Double-1>", self.on_double_click)
         self.refresh_list()
 
     def refresh_list(self):
@@ -150,6 +154,13 @@ class StudentDashboardFrame(tk.Frame):
             urgent_display = "🚨 Urgent" if d.get("urgent") == "Yes" else "No"
             explain_display = "📝 Yes" if d.get("explain") == "Yes" else "No"
 
+            status = d.get("status", "Pending")
+            if status == "Resolved":
+                reply_display = "✅ Resolved"
+            else:
+                reply_display = d["reply"] or "⌛ Pending"
+
+
             self.tree.insert("", "end", values=(
                 d["id"],
                 d["subject"],
@@ -158,7 +169,7 @@ class StudentDashboardFrame(tk.Frame):
                 urgent_display,
                 explain_display,
                 d["desc"],
-                d["reply"] or "⌛ Pending"
+                reply_display
             ))
 
     def submit_doubt(self):
@@ -186,3 +197,55 @@ class StudentDashboardFrame(tk.Frame):
 
         self.refresh_list()
         messagebox.showinfo("Success", "Doubt submitted successfully!")
+
+    def on_double_click(self, event):
+        item = self.tree.selection()
+        if not item:
+            return
+        
+        values = self.tree.item(item[0], "values")
+        if not values:
+            return
+        
+        reply = values[7]
+        if reply == "⌛ Pending":
+            messagebox.showinfo("Chat Not Available", "You can start chatting once the teacher replies to your doubt.")
+            return
+        
+        try:
+            doubt_id = int(values[0])
+        except (ValueError, TypeError):
+            return
+        
+        # Hide the treeview container
+        self.tree_container.pack_forget()
+        
+        # Create and pack the ChatFrame
+        self.chat_frame = ChatFrame(
+            self.right_frame,
+            self.store,
+            doubt_id,
+            self.username,
+            on_back=self.close_chat
+        )
+        self.chat_frame.pack(fill="both", expand=True)
+
+    def close_chat(self):
+        if hasattr(self, "chat_frame") and self.chat_frame:
+            self.chat_frame.destroy()
+            self.chat_frame = None
+        
+        # Restore treeview container and refresh list
+        self.tree_container.pack(fill="both", expand=True)
+        self.refresh_list()
+
+    def unresolve_selected_doubt(self):
+        did = self.selected_doubt_id
+        if did is None:
+            messagebox.showwarning("Warning", "Please select a doubt to resolve.")
+            return
+        if messagebox.askyesno("Unresolve Doubt", "Are you sure you want to mark this doubt as Unresolved?"):
+            self.store.resolve_doubt(did)
+            self.clear_details()
+            self.load_list()
+            messagebox.showinfo("Success", "Doubt marked as solved.")

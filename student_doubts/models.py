@@ -97,7 +97,25 @@ class DoubtStore:
                 urgent TEXT NOT NULL,
                 explain TEXT NOT NULL,
                 desc TEXT NOT NULL,
-                reply TEXT NOT NULL DEFAULT ''
+                reply TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'Pending'
+            )
+        """)
+        
+        # Migration: ensure status column exists in existing database
+        try:
+            cursor.execute("SELECT status FROM doubts LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE doubts ADD COLUMN status TEXT NOT NULL DEFAULT 'Pending'")
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                doubt_id INTEGER NOT NULL,
+                sender TEXT NOT NULL,
+                message TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (doubt_id) REFERENCES doubts (id) ON DELETE CASCADE
             )
         """)
         
@@ -298,9 +316,9 @@ class DoubtStore:
         """Adds a new doubt dictionary to the store."""
         cursor = self.conn.cursor()
         cursor.execute(
-            """INSERT INTO doubts (student, subject, teacher, severity, urgent, explain, desc, reply)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (student, subject, teacher, severity, urgent, explain, desc, "")
+            """INSERT INTO doubts (student, subject, teacher, severity, urgent, explain, desc, reply, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (student, subject, teacher, severity, urgent, explain, desc, "", "Pending")
         )
         self.conn.commit()
         
@@ -314,14 +332,15 @@ class DoubtStore:
             "urgent": urgent,
             "explain": explain,
             "desc": desc,
-            "reply": ""
+            "reply": "",
+            "status": "Pending"
         }
 
     def submit_reply(self, doubt_id, reply_text):
         """Finds doubt by ID and sets the reply text."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "UPDATE doubts SET reply = ? WHERE id = ?",
+            "UPDATE doubts SET reply = ?, status = CASE WHEN status = 'Pending' THEN 'Replied' ELSE status END WHERE id = ?",
             (reply_text, doubt_id)
         )
         self.conn.commit()
@@ -331,7 +350,7 @@ class DoubtStore:
         """Returns list of doubts submitted by a specific student."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply FROM doubts WHERE student = ?",
+            "SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply, status FROM doubts WHERE student = ?",
             (student_username,)
         )
         rows = cursor.fetchall()
@@ -345,7 +364,8 @@ class DoubtStore:
                 "urgent": r[5],
                 "explain": r[6],
                 "desc": r[7],
-                "reply": r[8]
+                "reply": r[8],
+                "status": r[9]
             }
             for r in rows
         ]
@@ -354,7 +374,7 @@ class DoubtStore:
         """Returns all doubts (for teachers)."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply FROM doubts"
+            "SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply, status FROM doubts"
         )
         rows = cursor.fetchall()
         return [
@@ -367,10 +387,21 @@ class DoubtStore:
                 "urgent": r[5],
                 "explain": r[6],
                 "desc": r[7],
-                "reply": r[8]
+                "reply": r[8],
+                "status": r[9]
             }
             for r in rows
         ]
+
+    def resolve_doubt(self, doubt_id):
+        """Sets the doubt status to 'Resolved'."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE doubts SET status = 'Resolved' WHERE id = ?",
+            (doubt_id,)
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
 
     def get_subjects(self):
         """Returns list of dynamic subjects."""
@@ -385,6 +416,32 @@ class DoubtStore:
         cursor.execute("SELECT username FROM users WHERE role = 'teacher'")
         rows = cursor.fetchall()
         return [r[0] for r in rows]
+
+    def get_chat_messages(self, doubt_id):
+        """Returns all chat messages for a given doubt ID."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT sender, message, timestamp FROM chat_messages WHERE doubt_id = ? ORDER BY timestamp ASC",
+            (doubt_id,)
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "sender": r[0],
+                "message": r[1],
+                "timestamp": r[2]
+            }
+            for r in rows
+        ]
+
+    def add_chat_message(self, doubt_id, sender, message):
+        """Adds a new chat message to the database."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT INTO chat_messages (doubt_id, sender, message) VALUES (?, ?, ?)",
+            (doubt_id, sender, message)
+        )
+        self.conn.commit()
 
     def __del__(self):
         # Close connection when object is garbage collected
