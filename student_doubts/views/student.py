@@ -108,7 +108,7 @@ class StudentDashboardFrame(tk.Frame):
         tree_container.pack(fill="both", expand=True)
         self.tree_container = tree_container
 
-        cols = ("ID", "Subject", "Teacher", "Severity", "Urgent", "Needs Explanation", "Description", "Reply")
+        cols = ("ID", "Subject", "Teacher", "Severity", "Urgent", "Needs Explanation", "Description", "Status")
         self.tree = ttk.Treeview(tree_container, columns=cols, show="headings")
 
         # Vertical & horizontal scrollbars
@@ -129,7 +129,7 @@ class StudentDashboardFrame(tk.Frame):
             "Urgent": 80,
             "Needs Explanation": 120,
             "Description": 200,
-            "Reply": 150
+            "Status": 150
         }
 
         for col in cols:
@@ -137,6 +137,39 @@ class StudentDashboardFrame(tk.Frame):
             self.tree.column(col, width=col_widths[col], minwidth=50, stretch=True)
 
         self.tree.bind("<Double-1>", self.on_double_click)
+
+        # Button frame at the bottom of the student dashboard right pane
+        btn_frame = tk.Frame(right_frame, bg=style.BG_CARD)
+        btn_frame.pack(fill="x", pady=(10, 0))
+        self.btn_frame = btn_frame
+
+        open_chat_btn = tk.Button(
+            btn_frame,
+            text="💬 Open Chat",
+            font=style.FONT_LABEL,
+            bg=style.COLOR_PRIMARY,
+            fg="white",
+            activebackground="#2563eb",
+            relief="flat",
+            cursor="hand2",
+            command=self.open_chat_for_selected
+        )
+        open_chat_btn.config(highlightbackground=style.BG_CARD)
+        open_chat_btn.pack(side="left", padx=(0, 10), ipady=3, ipadx=10)
+
+        self.unresolve_btn = tk.Button(
+            btn_frame,
+            text="↺ Unresolve Doubt",
+            font=style.FONT_LABEL,
+            bg=style.COLOR_PRIMARY,
+            fg="white",
+            relief="flat",
+            cursor="hand2",
+            command=self.unresolve_selected_doubt
+        )
+        self.unresolve_btn.config(highlightbackground=style.BG_CARD)
+        self.unresolve_btn.pack(side="left", ipady=3, ipadx=10)
+
         self.refresh_list()
 
     def refresh_list(self):
@@ -156,9 +189,9 @@ class StudentDashboardFrame(tk.Frame):
 
             status = d.get("status", "Pending")
             if status == "Resolved":
-                reply_display = "✅ Resolved"
+                status_display = "✅ Resolved"
             else:
-                reply_display = d["reply"] or "⌛ Pending"
+                status_display = "⌛ Pending"
 
 
             self.tree.insert("", "end", values=(
@@ -169,7 +202,7 @@ class StudentDashboardFrame(tk.Frame):
                 urgent_display,
                 explain_display,
                 d["desc"],
-                reply_display
+                status_display
             ))
 
     def submit_doubt(self):
@@ -198,6 +231,18 @@ class StudentDashboardFrame(tk.Frame):
         self.refresh_list()
         messagebox.showinfo("Success", "Doubt submitted successfully!")
 
+    def get_selected_doubt_id(self):
+        sel = self.tree.selection()
+        if not sel:
+            return None
+        values = self.tree.item(sel[0], "values")
+        if not values:
+            return None
+        try:
+            return int(values[0])
+        except (ValueError, TypeError):
+            return None
+
     def on_double_click(self, event):
         item = self.tree.selection()
         if not item:
@@ -207,18 +252,28 @@ class StudentDashboardFrame(tk.Frame):
         if not values:
             return
         
-        reply = values[7]
-        if reply == "⌛ Pending":
-            messagebox.showinfo("Chat Not Available", "You can start chatting once the teacher replies to your doubt.")
-            return
-        
         try:
             doubt_id = int(values[0])
         except (ValueError, TypeError):
             return
         
-        # Hide the treeview container
+        self.open_chat_by_id(doubt_id)
+
+    def open_chat_for_selected(self):
+        did = self.get_selected_doubt_id()
+        if did is None:
+            messagebox.showwarning("Warning", "Please select a doubt from the table to open chat.")
+            return
+        self.open_chat_by_id(did)
+
+    def open_chat_by_id(self, doubt_id):
+        if hasattr(self, "chat_frame") and self.chat_frame:
+            return
+            
+        # Hide the treeview container and the button frame
         self.tree_container.pack_forget()
+        if hasattr(self, "btn_frame") and self.btn_frame:
+            self.btn_frame.pack_forget()
         
         # Create and pack the ChatFrame
         self.chat_frame = ChatFrame(
@@ -235,17 +290,25 @@ class StudentDashboardFrame(tk.Frame):
             self.chat_frame.destroy()
             self.chat_frame = None
         
-        # Restore treeview container and refresh list
+        # Restore treeview container, button frame and refresh list
         self.tree_container.pack(fill="both", expand=True)
+        if hasattr(self, "btn_frame") and self.btn_frame:
+            self.btn_frame.pack(fill="x", pady=(10, 0))
         self.refresh_list()
 
     def unresolve_selected_doubt(self):
-        did = self.selected_doubt_id
+        did = self.get_selected_doubt_id()
         if did is None:
-            messagebox.showwarning("Warning", "Please select a doubt to resolve.")
+            messagebox.showwarning("Warning", "Please select a doubt to unresolve.")
             return
+        
+        # Get doubt details to verify if it's resolved
+        doubt = next((d for d in self.store.get_all_doubts() if d["id"] == did), None)
+        if not doubt or doubt.get("status") != "Resolved":
+            messagebox.showwarning("Warning", "Only resolved doubts can be unresolved.")
+            return
+            
         if messagebox.askyesno("Unresolve Doubt", "Are you sure you want to mark this doubt as Unresolved?"):
-            self.store.resolve_doubt(did)
-            self.clear_details()
-            self.load_list()
-            messagebox.showinfo("Success", "Doubt marked as solved.")
+            self.store.unresolve_doubt(did)
+            self.refresh_list()
+            messagebox.showinfo("Success", "Doubt marked as Unresolved.")

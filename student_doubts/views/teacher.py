@@ -37,7 +37,7 @@ class TeacherDashboardFrame(tk.Frame):
         tree_container.pack(fill="both", expand=True)
         self.tree_container = tree_container
 
-        cols = ("ID", "Student", "Subject", "Teacher", "Severity", "Urgent", "Needs Explanation", "Description", "Reply")
+        cols = ("ID", "Student", "Subject", "Teacher", "Severity", "Urgent", "Needs Explanation", "Description", "Status")
         self.tree = ttk.Treeview(tree_container, columns=cols, show="headings")
 
         # Scrollbars
@@ -58,7 +58,7 @@ class TeacherDashboardFrame(tk.Frame):
             "Urgent": 80,
             "Needs Explanation": 120,
             "Description": 200,
-            "Reply": 150
+            "Status": 150
         }
 
         for col in cols:
@@ -112,47 +112,42 @@ class TeacherDashboardFrame(tk.Frame):
         self.desc_viewer = tk.Text(right_frame, height=5, font=style.FONT_BODY, bg=style.BG_INPUT, fg=style.FG_DARK, bd=1, relief="solid", state="disabled", wrap="word")
         self.desc_viewer.pack(fill="x", pady=(0, 10))
 
-        # Reply input field
-        tk.Label(right_frame, text="Your Reply:", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(5, 2))
-        self.reply_e = tk.Text(right_frame, height=4, font=style.FONT_INPUT, bg=style.BG_CARD, fg=style.FG_DARK, bd=1, relief="solid", wrap="word")
-        self.reply_e.pack(fill="x", pady=(0, 15))
-
         self.selected_doubt_id = None
 
-        # Submit reply button
-        reply_btn = tk.Button(
+        # Open chat button
+        open_chat_btn = tk.Button(
             right_frame,
-            text="Submit Reply",
-            font=style.FONT_LABEL,
-            bg=style.COLOR_SUCCESS,
-            fg="white",
-            activebackground="#059669",
-            relief="flat",
-            cursor="hand2",
-            command=self.send_reply
-        )
-        reply_btn.config(highlightbackground=style.BG_CARD)
-        reply_btn.pack(fill="x", ipady=5)
-
-        self.pane_resolve_btn = tk.Button(
-            right_frame,
-            text="Mark as Resolved",
+            text="💬 Open Chat",
             font=style.FONT_LABEL,
             bg=style.COLOR_PRIMARY,
             fg="white",
             activebackground="#2563eb",
             relief="flat",
             cursor="hand2",
+            command=self.open_chat_for_selected
+        )
+        open_chat_btn.config(highlightbackground=style.BG_CARD)
+        open_chat_btn.pack(fill="x", ipady=5, pady=(10, 10))
+
+        self.pane_resolve_btn = tk.Button(
+            right_frame,
+            text="Mark as Resolved",
+            font=style.FONT_LABEL,
+            bg=style.COLOR_SUCCESS,
+            fg="white",
+            activebackground="#059669",
+            relief="flat",
+            cursor="hand2",
             command=self.resolve_selected_doubt
         )
         self.pane_resolve_btn.config(highlightbackground=style.BG_CARD)
-        self.pane_resolve_btn.pack(fill="x", ipady=5, pady=(10, 0))
+        self.pane_resolve_btn.pack(fill="x", ipady=5)
 
         self.load_list()
 
     def load_list(self):
         self.tree.delete(*self.tree.get_children())
-        for d in self.store.get_all_doubts():
+        for d in self.store.get_doubts_for_teacher(self.username):
             # Formatting badges for high readability & dark mode safety
             sev = d.get("severity", "Low")
             if sev == "High":
@@ -167,9 +162,9 @@ class TeacherDashboardFrame(tk.Frame):
 
             status = d.get("status", "Pending")
             if status == "Resolved":
-                reply_display = "✅ Resolved"
+                status_display = "✅ Resolved"
             else:
-                reply_display = d["reply"] or "⌛ Pending"
+                status_display = "⌛ Pending"
 
             self.tree.insert("", "end", iid=str(d["id"]), values=(
                 d["id"],
@@ -180,7 +175,7 @@ class TeacherDashboardFrame(tk.Frame):
                 urgent_display,
                 explain_display,
                 d["desc"],
-                reply_display
+                status_display
             ))
 
     def on_tree_select(self, event):
@@ -193,7 +188,7 @@ class TeacherDashboardFrame(tk.Frame):
         self.selected_doubt_id = did
 
         # Find matching doubt
-        doubt = next((d for d in self.store.get_all_doubts() if d["id"] == did), None)
+        doubt = next((d for d in self.store.get_doubts_for_teacher(self.username) if d["id"] == did), None)
         if doubt:
             self.lbl_student.set(doubt["student"])
             self.lbl_subject.set(doubt["subject"])
@@ -213,13 +208,9 @@ class TeacherDashboardFrame(tk.Frame):
             self.desc_viewer.config(state="disabled")
 
             if doubt.get("status") == "Resolved":
-                self.pane_resolve_btn.config(state="disabled")
+                self.pane_resolve_btn.config(text="Unresolve Doubt", command=self.unresolve_selected_doubt)
             else:
-                self.pane_resolve_btn.config(state="normal")
-
-            # Load reply
-            self.reply_e.delete("1.0", "end")
-            self.reply_e.insert("1.0", doubt["reply"])
+                self.pane_resolve_btn.config(text="Mark as Resolved", command=self.resolve_selected_doubt)
 
     def clear_details(self):
         self.selected_doubt_id = None
@@ -231,32 +222,8 @@ class TeacherDashboardFrame(tk.Frame):
         self.desc_viewer.config(state="normal")
         self.desc_viewer.delete("1.0", "end")
         self.desc_viewer.config(state="disabled")
-        
-        self.reply_e.delete("1.0", "end")
-
-    def send_reply(self):
-        did = self.selected_doubt_id
-        if did is None:
-            messagebox.showwarning("Warning", "Please select a doubt from the table to reply.")
-            return
-
-        txt = self.reply_e.get("1.0", "end").strip()
-        if not txt:
-            messagebox.showwarning("Warning", "Please write a reply before submitting.")
-            return
-
-        success = self.store.submit_reply(did, txt)
-        if success:
-            self.clear_details()
-            self.load_list()
-            messagebox.showinfo("Success", "Reply updated successfully!")
-        else:
-            messagebox.showerror("Error", "Could not submit reply.")
 
     def on_double_click(self, event):
-        if hasattr(self, "chat_frame") and self.chat_frame:
-            return
-
         item = self.tree.selection()
         if not item:
             return
@@ -265,16 +232,23 @@ class TeacherDashboardFrame(tk.Frame):
         if not values:
             return
         
-        reply = values[8]
-        if reply == "⌛ Pending":
-            messagebox.showinfo("Chat Not Available", "You can start chatting once you reply to the student's doubt.")
-            return
-        
         try:
             doubt_id = int(values[0])
         except (ValueError, TypeError):
             return
         
+        self.open_chat_by_id(doubt_id)
+
+    def open_chat_for_selected(self):
+        if self.selected_doubt_id is None:
+            messagebox.showwarning("Warning", "Please select a doubt from the table to open chat.")
+            return
+        self.open_chat_by_id(self.selected_doubt_id)
+
+    def open_chat_by_id(self, doubt_id):
+        if hasattr(self, "chat_frame") and self.chat_frame:
+            return
+            
         # Hide the treeview container and details pane
         self.tree_container.pack_forget()
         self.right_frame.pack_forget()
@@ -309,4 +283,15 @@ class TeacherDashboardFrame(tk.Frame):
             self.clear_details()
             self.load_list()
             messagebox.showinfo("Success", "Doubt marked as Resolved.")
+
+    def unresolve_selected_doubt(self):
+        did = self.selected_doubt_id
+        if did is None:
+            messagebox.showwarning("Warning", "Please select a doubt to unresolve.")
+            return
+        if messagebox.askyesno("Unresolve Doubt", "Are you sure you want to mark this doubt as Unresolved?"):
+            self.store.unresolve_doubt(did)
+            self.clear_details()
+            self.load_list()
+            messagebox.showinfo("Success", "Doubt marked as Unresolved.")
             

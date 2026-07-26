@@ -312,6 +312,26 @@ class DoubtStore:
             return row[1]
         return None
 
+    def register_user(self, username, password, role):
+        """Registers a new user in the database. Returns True if successful, False if username exists."""
+        u_clean = str(username).strip()
+        p_clean = str(password).strip()
+        r_clean = str(role).strip().lower()
+        
+        if not u_clean or not p_clean or r_clean not in ["student", "teacher"]:
+            return False
+            
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                (u_clean, p_clean, r_clean)
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
     def add_doubt(self, student, subject, teacher, severity, urgent, explain, desc):
         """Adds a new doubt dictionary to the store."""
         cursor = self.conn.cursor()
@@ -393,11 +413,45 @@ class DoubtStore:
             for r in rows
         ]
 
+    def get_doubts_for_teacher(self, teacher_username):
+        """Returns doubts received by a specific teacher."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply, status FROM doubts WHERE teacher = ?",
+            (teacher_username,)
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r[0],
+                "student": r[1],
+                "subject": r[2],
+                "teacher": r[3],
+                "severity": r[4],
+                "urgent": r[5],
+                "explain": r[6],
+                "desc": r[7],
+                "reply": r[8],
+                "status": r[9]
+            }
+            for r in rows
+        ]
+
     def resolve_doubt(self, doubt_id):
         """Sets the doubt status to 'Resolved'."""
         cursor = self.conn.cursor()
         cursor.execute(
             "UPDATE doubts SET status = 'Resolved' WHERE id = ?",
+            (doubt_id,)
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def unresolve_doubt(self, doubt_id):
+        """Sets the doubt status back to 'Pending'."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE doubts SET status = 'Pending' WHERE id = ?",
             (doubt_id,)
         )
         self.conn.commit()

@@ -24,6 +24,7 @@ class ChatFrame(tk.Frame):
         # 1. Header Frame
         header = tk.Frame(self, bg=style.BG_CARD, bd=1, relief="solid")
         header.pack(fill="x", side="top", ipady=5)
+        self.header = header
 
         # Back Button
         back_btn = tk.Button(
@@ -49,10 +50,8 @@ class ChatFrame(tk.Frame):
         )
         info_lbl.pack(side="left", padx=20)
 
-        # Resolve Button (Visible only to teachers if not already resolved)
-        is_teacher = self.current_user in self.store.get_teachers()
+        # Status and Action buttons
         status = self.doubt.get("status", "Pending")
-
         self.status_var = tk.StringVar(value=f"Status: {status}")
         self.status_lbl = tk.Label(
             header,
@@ -63,18 +62,8 @@ class ChatFrame(tk.Frame):
         )
         self.status_lbl.pack(side="right", padx=15, pady=5)
 
-        if is_teacher and status != "Resolved":
-            self.resolve_btn = tk.Button(
-                header,
-                text="✔ Resolve",
-                font=style.FONT_LABEL,
-                bg=style.COLOR_SUCCESS,
-                fg="white",
-                relief="flat",
-                cursor="hand2",
-                command=self.resolve_doubt
-            )
-            self.resolve_btn.pack(side="right", padx=10, pady=5)
+        self.action_btn = None
+        self.update_status_buttons()
 
         # 2. Scrollable Messages Area
         self.msg_container = tk.Frame(self, bg=style.BG_MAIN)
@@ -146,10 +135,12 @@ class ChatFrame(tk.Frame):
         self.text_area.insert("end", f"{self.doubt.get('desc')}\n", "body")
         self.text_area.insert("end", "─" * 60 + "\n", "divider")
 
-        # 2. Add Teacher's Initial Reply
-        self.text_area.insert("end", f"Initial Reply by {self.doubt.get('teacher')}\n", "teacher_title")
-        self.text_area.insert("end", f"{self.doubt.get('reply')}\n", "body")
-        self.text_area.insert("end", "─" * 60 + "\n", "divider")
+        # 2. Add Teacher's Initial Reply only if it exists (for historical data)
+        reply = self.doubt.get('reply', '').strip()
+        if reply:
+            self.text_area.insert("end", f"Initial Reply by {self.doubt.get('teacher')}\n", "teacher_title")
+            self.text_area.insert("end", f"{reply}\n", "body")
+            self.text_area.insert("end", "─" * 60 + "\n", "divider")
 
         # 3. Add Subsequent Chat Messages
         messages = self.store.get_chat_messages(self.doubt_id)
@@ -183,14 +174,59 @@ class ChatFrame(tk.Frame):
         except Exception as e:
             messagebox.showerror("Error", f"Failed to send message: {e}")
 
+    def update_status_buttons(self):
+        if hasattr(self, "action_btn") and self.action_btn:
+            self.action_btn.pack_forget()
+            self.action_btn.destroy()
+            self.action_btn = None
+
+        status = self.doubt.get("status", "Pending")
+        self.status_var.set(f"Status: {status}")
+        
+        if status == "Resolved":
+            self.status_lbl.config(fg=style.COLOR_SUCCESS)
+            # Both teachers and students can unresolve
+            self.action_btn = tk.Button(
+                self.header,
+                text="↺ Unresolve",
+                font=style.FONT_LABEL,
+                bg=style.COLOR_PRIMARY,
+                fg="white",
+                relief="flat",
+                cursor="hand2",
+                command=self.unresolve_doubt
+            )
+            self.action_btn.pack(side="right", padx=10, pady=5)
+        else:
+            self.status_lbl.config(fg=style.COLOR_PRIMARY)
+            self.action_btn = tk.Button(
+                self.header,
+                text="✔ Resolve",
+                font=style.FONT_LABEL,
+                bg=style.COLOR_SUCCESS,
+                fg="white",
+                relief="flat",
+                cursor="hand2",
+                command=self.resolve_doubt
+            )
+            self.action_btn.pack(side="right", padx=10, pady=5)
+
     def resolve_doubt(self):
         if messagebox.askyesno("Resolve Doubt", "Are you sure you want to mark this doubt as Resolved?"):
             try:
                 self.store.resolve_doubt(self.doubt_id)
-                self.status_var.set("Status: Resolved")
-                self.status_lbl.config(fg=style.COLOR_SUCCESS)
-                if hasattr(self, "resolve_btn") and self.resolve_btn:
-                    self.resolve_btn.pack_forget()
+                self.doubt["status"] = "Resolved"
+                self.update_status_buttons()
                 messagebox.showinfo("Success", "Doubt has been marked as Resolved.")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to resolve doubt: {e}")
+
+    def unresolve_doubt(self):
+        if messagebox.askyesno("Unresolve Doubt", "Are you sure you want to unresolve this doubt?"):
+            try:
+                self.store.unresolve_doubt(self.doubt_id)
+                self.doubt["status"] = "Pending"
+                self.update_status_buttons()
+                messagebox.showinfo("Success", "Doubt has been marked as Unresolved.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to unresolve doubt: {e}")
