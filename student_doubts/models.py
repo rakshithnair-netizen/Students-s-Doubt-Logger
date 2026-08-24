@@ -77,9 +77,17 @@ class DoubtStore:
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
                 password TEXT NOT NULL,
-                role TEXT NOT NULL
+                role TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1
             )
         """)
+
+        # Existing databases created before administration was introduced need
+        # the active flag as well.  Deactivation is deliberately reversible.
+        try:
+            cursor.execute("SELECT active FROM users LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
         
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS subjects (
@@ -306,9 +314,9 @@ class DoubtStore:
         p_clean = str(password).strip()
         
         cursor = self.conn.cursor()
-        cursor.execute("SELECT password, role FROM users WHERE username = ?", (u_clean,))
+        cursor.execute("SELECT password, role, active FROM users WHERE username = ?", (u_clean,))
         row = cursor.fetchone()
-        if row and row[0] == p_clean:
+        if row and row[0] == p_clean and row[2]:
             return row[1]
         return None
 
@@ -467,9 +475,102 @@ class DoubtStore:
     def get_teachers(self):
         """Returns list of dynamic teachers."""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT username FROM users WHERE role = 'teacher'")
+        cursor.execute("SELECT username FROM users WHERE role = 'teacher' AND active = 1")
         rows = cursor.fetchall()
         return [r[0] for r in rows]
+
+    # ── Administration operations ─────────────────────────────────────
+    def get_users(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT username, role, active FROM users ORDER BY role, username")
+        return [
+            {"username": row[0], "role": row[1], "active": bool(row[2])}
+            for row in cursor.fetchall()
+        ]
+
+    def create_admin_user(self, username, password):
+        """Creates an administrator; public sign-up intentionally cannot."""
+        u_clean, p_clean = str(username).strip(), str(password).strip()
+        if not u_clean or not p_clean:
+            return False
+        try:
+            self.conn.execute(
+                "INSERT INTO users (username, password, role, active) VALUES (?, ?, 'admin', 1)",
+                (u_clean, p_clean),
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def set_user_role(self, username, role):
+        if role not in ("student", "teacher", "admin"):
+            return False
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE users SET role = ? WHERE username = ?", (role, username))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def set_user_active(self, username, active):
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE users SET active = ? WHERE username = ?", (1 if active else 0, username))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def add_subject(self, subject):
+        subject = str(subject).strip()
+        if not subject:
+            return False
+        try:
+            self.conn.execute("INSERT INTO subjects (subject) VALUES (?)", (subject,))
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def remove_subject(self, subject):
+        """A subject with linked doubts remains protected for data integrity."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM doubts WHERE subject = ?", (subject,))
+        if cursor.fetchone()[0]:
+            return False
+        cursor.execute("DELETE FROM subjects WHERE subject = ?", (subject,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def assign_doubt(self, doubt_id, teacher):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE doubts SET teacher = ?, status = CASE WHEN status = 'Pending' THEN 'Assigned' ELSE status END WHERE id = ?",
+            (teacher, doubt_id),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def set_doubt_status(self, doubt_id, status):
+        if status not in ("Pending", "Assigned", "Replied", "Resolved"):
+            return False
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE doubts SET status = ? WHERE id = ?", (status, doubt_id))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_admin_metrics(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users WHERE active = 1")
+        active_users = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM doubts")
+        total_doubts = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM doubts WHERE status != 'Resolved'")
+        open_doubts = cursor.fetchone()[0]
+        cursor.execute("SELECT subject, COUNT(*) FROM doubts GROUP BY subject ORDER BY COUNT(*) DESC, subject LIMIT 1")
+        row = cursor.fetchone()
+        return {
+            "active_users": active_users,
+            "total_doubts": total_doubts,
+            "open_doubts": open_doubts,
+            "top_subject": row[0] if row else "No data",
+        }
 
     def get_chat_messages(self, doubt_id):
         """Returns all chat messages for a given doubt ID."""
