@@ -56,17 +56,6 @@ class StudentDashboardFrame(tk.Frame):
         tk.Radiobutton(severity_frame, text="Medium", variable=self.severity, value="Medium", bg=style.BG_CARD, activebackground=style.BG_CARD).pack(side="left", expand=True, anchor="w")
         tk.Radiobutton(severity_frame, text="High", variable=self.severity, value="High", bg=style.BG_CARD, activebackground=style.BG_CARD).pack(side="left", expand=True, anchor="w")
 
-        # Extra flags Checkbuttons
-        tk.Label(left_frame, text="Additional Flags", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(5, 2))
-        flags_frame = tk.Frame(left_frame, bg=style.BG_CARD)
-        flags_frame.pack(fill="x", pady=(0, 10))
-        
-        self.urgent_var = tk.IntVar()
-        self.explain_var = tk.IntVar()
-
-        tk.Checkbutton(flags_frame, text="Urgent", variable=self.urgent_var, bg=style.BG_CARD, activebackground=style.BG_CARD).pack(side="left", expand=True, anchor="w")
-        tk.Checkbutton(flags_frame, text="Requires Detail", variable=self.explain_var, bg=style.BG_CARD, activebackground=style.BG_CARD).pack(side="left", expand=True, anchor="w")
-
         # Description text entry
         tk.Label(left_frame, text="Doubt Description", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(5, 2))
         self.desc_t = tk.Text(left_frame, height=5, font=style.FONT_INPUT, bg=style.BG_INPUT, fg=style.FG_DARK, bd=1, relief="solid", wrap="word")
@@ -101,14 +90,43 @@ class StudentDashboardFrame(tk.Frame):
             bd=1,
             relief="solid"
         )
-        right_frame.pack(side="right", fill="both", expand=True)
+        right_frame.pack(side="left", fill="both", expand=True)
         self.right_frame = right_frame
+
+        self._build_community_sidebar(main_container)
+
+        # List controls stay separate from the submission form so students can
+        # quickly find a past doubt without losing what they are currently writing.
+        self.search_var = tk.StringVar()
+        self.subject_filter_var = tk.StringVar(value="All subjects")
+        self.teacher_filter_var = tk.StringVar(value="All teachers")
+        self.status_filter_var = tk.StringVar(value="All statuses")
+        self.sort_var = tk.StringVar(value="Newest first")
+
+        self.filter_frame = tk.Frame(right_frame, bg=style.BG_CARD)
+        self.filter_frame.pack(fill="x", pady=(0, 8))
+
+        tk.Label(self.filter_frame, text="Find", font=style.FONT_LABEL,
+                 bg=style.BG_CARD, fg=style.FG_MUTED).pack(side="left", padx=(0, 4))
+        search_entry = tk.Entry(self.filter_frame, textvariable=self.search_var,
+                                font=style.FONT_BODY, width=16)
+        search_entry.pack(side="left", padx=(0, 8))
+        search_entry.bind("<KeyRelease>", lambda _event: self.refresh_list())
+
+        self.subject_filter_combo = self._make_filter_combo(self.filter_frame, self.subject_filter_var, 13)
+        self.teacher_filter_combo = self._make_filter_combo(self.filter_frame, self.teacher_filter_var, 13)
+        self.status_filter_combo = self._make_filter_combo(self.filter_frame, self.status_filter_var, 13)
+        self.sort_combo = self._make_filter_combo(self.filter_frame, self.sort_var, 16)
+
+        tk.Button(self.filter_frame, text="Clear", font=style.FONT_BODY,
+                  bg=style.BG_MAIN, fg=style.FG_DARK, relief="flat", cursor="hand2",
+                  command=self.clear_filters).pack(side="left", padx=(6, 0))
 
         tree_container = tk.Frame(right_frame, bg=style.BG_CARD)
         tree_container.pack(fill="both", expand=True)
         self.tree_container = tree_container
 
-        cols = ("ID", "Subject", "Teacher", "Severity", "Urgent", "Needs Explanation", "Description", "Status")
+        cols = ("ID", "Subject", "Teacher", "Severity", "Points", "Description", "Status")
         self.tree = ttk.Treeview(tree_container, columns=cols, show="headings")
 
         # Vertical & horizontal scrollbars
@@ -126,8 +144,7 @@ class StudentDashboardFrame(tk.Frame):
             "Subject": 80,
             "Teacher": 100,
             "Severity": 90,
-            "Urgent": 80,
-            "Needs Explanation": 120,
+            "Points": 65,
             "Description": 200,
             "Status": 150
         }
@@ -172,9 +189,105 @@ class StudentDashboardFrame(tk.Frame):
 
         self.refresh_list()
 
+    def _build_community_sidebar(self, parent):
+        sidebar = tk.LabelFrame(parent, text="🏆 Community", font=style.FONT_TITLE,
+                                bg=style.BG_CARD, fg=style.FG_DARK, padx=10, pady=10,
+                                bd=1, relief="solid", width=250)
+        sidebar.pack(side="right", fill="both", padx=(10, 0))
+        sidebar.pack_propagate(False)
+
+        tk.Label(sidebar, text="Student leaderboard", font=style.FONT_LABEL,
+                 bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w")
+        self.leaderboard = tk.Listbox(sidebar, height=7, font=style.FONT_BODY,
+                                      bg=style.BG_INPUT, fg=style.FG_DARK, bd=1, relief="solid")
+        self.leaderboard.pack(fill="x", pady=(4, 12))
+
+        tk.Label(sidebar, text="📌 Featured doubts", font=style.FONT_LABEL,
+                 bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w")
+        self.feature_subject_var = tk.StringVar(value="All subjects")
+        self.feature_subject_combo = ttk.Combobox(sidebar, textvariable=self.feature_subject_var,
+                                                  state="readonly", font=style.FONT_BODY)
+        self.feature_subject_combo.pack(fill="x", pady=(3, 5))
+        self.feature_subject_combo.bind("<<ComboboxSelected>>", lambda _event: self.refresh_featured())
+        self.featured_list = tk.Listbox(sidebar, font=style.FONT_BODY, bg=style.BG_INPUT,
+                                        fg=style.FG_DARK, bd=1, relief="solid")
+        self.featured_list.pack(fill="both", expand=True)
+        tk.Label(sidebar, text="Shared by teachers for everyone to learn from.", wraplength=215,
+                 justify="left", font=style.FONT_BODY, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(6, 0))
+
+    def refresh_community(self):
+        self.leaderboard.delete(0, "end")
+        medals = ("🥇", "🥈", "🥉")
+        for index, row in enumerate(self.store.get_student_leaderboard(), start=1):
+            prefix = medals[index - 1] if index <= 3 else f"{index}."
+            self.leaderboard.insert("end", f"{prefix} {row['student']} — {row['points']} pts")
+        self.refresh_featured()
+
+    def refresh_featured(self):
+        doubts = self.store.get_featured_doubts()
+        subjects = sorted({d["subject"] for d in doubts})
+        self.feature_subject_combo["values"] = ["All subjects"] + subjects
+        selected = self.feature_subject_var.get()
+        self.featured_list.delete(0, "end")
+        for doubt in doubts:
+            if selected != "All subjects" and doubt["subject"] != selected:
+                continue
+            note = f" — {doubt['featured_note']}" if doubt.get("featured_note") else ""
+            self.featured_list.insert("end", f"📌 {doubt['subject']}: {doubt['desc'][:55]}{note}")
+
+    def _make_filter_combo(self, parent, variable, width):
+        combo = ttk.Combobox(parent, textvariable=variable, state="readonly",
+                             font=style.FONT_BODY, width=width)
+        combo.pack(side="left", padx=(0, 5))
+        combo.bind("<<ComboboxSelected>>", lambda _event: self.refresh_list())
+        return combo
+
+    def clear_filters(self):
+        self.search_var.set("")
+        self.subject_filter_var.set("All subjects")
+        self.teacher_filter_var.set("All teachers")
+        self.status_filter_var.set("All statuses")
+        self.sort_var.set("Newest first")
+        self.refresh_list()
+
+    def _filtered_doubts(self):
+        doubts = self.store.get_doubts_for_student(self.username)
+        self.subject_filter_combo["values"] = ["All subjects"] + sorted({d["subject"] for d in doubts})
+        self.teacher_filter_combo["values"] = ["All teachers"] + sorted({d.get("teacher", "") for d in doubts if d.get("teacher", "")})
+        self.status_filter_combo["values"] = ["All statuses"] + sorted({d.get("status", "Pending") for d in doubts})
+        self.sort_combo["values"] = ("Newest first", "Oldest first", "Severity: high to low",
+                                      "Status", "Subject", "Teacher")
+
+        search = self.search_var.get().strip().lower()
+        doubts = [d for d in doubts if (
+            self.subject_filter_var.get() == "All subjects" or d["subject"] == self.subject_filter_var.get()
+        ) and (
+            self.teacher_filter_var.get() == "All teachers" or d.get("teacher", "") == self.teacher_filter_var.get()
+        ) and (
+            self.status_filter_var.get() == "All statuses" or d.get("status", "Pending") == self.status_filter_var.get()
+        ) and (
+            not search or search in " ".join(str(d.get(key, "")) for key in ("id", "subject", "teacher", "severity", "desc", "status")).lower()
+        )]
+
+        severity_rank = {"High": 3, "Medium": 2, "Low": 1}
+        sort_key = self.sort_var.get()
+        if sort_key == "Oldest first":
+            doubts.sort(key=lambda d: d["id"])
+        elif sort_key == "Severity: high to low":
+            doubts.sort(key=lambda d: (-severity_rank.get(d.get("severity"), 0), -d["id"]))
+        elif sort_key == "Status":
+            doubts.sort(key=lambda d: (d.get("status", ""), -d["id"]))
+        elif sort_key == "Subject":
+            doubts.sort(key=lambda d: (d.get("subject", "").lower(), -d["id"]))
+        elif sort_key == "Teacher":
+            doubts.sort(key=lambda d: (d.get("teacher", "").lower(), -d["id"]))
+        else:
+            doubts.sort(key=lambda d: d["id"], reverse=True)
+        return doubts
+
     def refresh_list(self):
         self.tree.delete(*self.tree.get_children())
-        for d in self.store.get_doubts_for_student(self.username):
+        for d in self._filtered_doubts():
             # Formatting badges for high readability & dark mode safety
             sev = d.get("severity", "Low")
             if sev == "High":
@@ -183,9 +296,6 @@ class StudentDashboardFrame(tk.Frame):
                 sev_display = "🟡 Medium"
             else:
                 sev_display = "🟢 Low"
-
-            urgent_display = "🚨 Urgent" if d.get("urgent") == "Yes" else "No"
-            explain_display = "📝 Yes" if d.get("explain") == "Yes" else "No"
 
             status = d.get("status", "Pending")
             status_badges = {
@@ -202,11 +312,11 @@ class StudentDashboardFrame(tk.Frame):
                 d["subject"],
                 d.get("teacher", ""),
                 sev_display,
-                urgent_display,
-                explain_display,
+                f"⭐ {d.get('student_points', 0)}",
                 d["desc"],
                 status_display
             ))
+        self.refresh_community()
 
     def submit_doubt(self):
         s = self.subj_combo.get()
@@ -214,21 +324,16 @@ class StudentDashboardFrame(tk.Frame):
         sev = self.severity.get()
         d = self.desc_t.get("1.0", "end").strip()
 
-        urgent = "Yes" if self.urgent_var.get() == 1 else "No"
-        explain = "Yes" if self.explain_var.get() == 1 else "No"
-
         if s == "Select Subject" or t == "Select Teacher" or not d or not sev:
             messagebox.showwarning("Warning", "Please fill all fields before submitting.")
             return
 
-        self.store.add_doubt(self.username, s, t, sev, urgent, explain, d)
+        self.store.add_doubt(self.username, s, t, sev, "No", "No", d)
 
         # Clear inputs
         self.subj_combo.set("Select Subject")
         self.teacher_combo.set("Select Teacher")
         self.severity.set("Low")
-        self.urgent_var.set(0)
-        self.explain_var.set(0)
         self.desc_t.delete("1.0", "end")
 
         self.refresh_list()
@@ -275,6 +380,7 @@ class StudentDashboardFrame(tk.Frame):
             
         # Hide the treeview container and the button frame
         self.tree_container.pack_forget()
+        self.filter_frame.pack_forget()
         if hasattr(self, "btn_frame") and self.btn_frame:
             self.btn_frame.pack_forget()
         
@@ -295,6 +401,7 @@ class StudentDashboardFrame(tk.Frame):
         
         # Restore treeview container, button frame and refresh list
         self.tree_container.pack(fill="both", expand=True)
+        self.filter_frame.pack(fill="x", pady=(0, 8), before=self.tree_container)
         if hasattr(self, "btn_frame") and self.btn_frame:
             self.btn_frame.pack(fill="x", pady=(10, 0))
         self.refresh_list()

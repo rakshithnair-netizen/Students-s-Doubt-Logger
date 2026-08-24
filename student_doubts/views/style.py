@@ -13,7 +13,7 @@ BORDER_COLOR = "#e2e8f0"  # Light gray divider border color
 # Accent Colors
 COLOR_PRIMARY = "#3b82f6"  # Blue (Submit/Sign In)
 COLOR_SUCCESS = "#10b981"  # Emerald Green (Reply)
-COLOR_DANGER = "#ef4444"   # Red (Logout/Urgent)
+COLOR_DANGER = "#ef4444"   # Red (Logout/destructive actions)
 
 # Fonts
 FONT_HEADING = ("Helvetica", 18, "bold")

@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 from . import style
 
 class ChatFrame(tk.Frame):
@@ -64,6 +64,26 @@ class ChatFrame(tk.Frame):
 
         self.action_btn = None
         self.update_status_buttons()
+
+        # Recognition controls only appear in the teacher's own conversation.
+        # They make the gamified layer part of a real interaction, not a separate
+        # administrative task.
+        if self.current_user == self.doubt.get("teacher"):
+            self.points_var = tk.StringVar(value=str(self.doubt.get("student_points", 0)))
+            self.points_combo = ttk.Combobox(header, textvariable=self.points_var,
+                                             values=tuple(str(n) for n in range(11)),
+                                             state="readonly", width=3)
+            self.points_combo.pack(side="right", padx=(0, 4), pady=5)
+            tk.Button(header, text="⭐ Award points", font=style.FONT_LABEL,
+                      bg="#f59e0b", fg="white", relief="flat", cursor="hand2",
+                      command=self.award_points).pack(side="right", padx=(8, 0), pady=5)
+            self.feature_btn = tk.Button(
+                header,
+                text="📌 Unfeature" if self.doubt.get("featured") else "📌 Feature",
+                font=style.FONT_LABEL, bg="#8b5cf6", fg="white", relief="flat",
+                cursor="hand2", command=self.toggle_feature,
+            )
+            self.feature_btn.pack(side="right", padx=(8, 0), pady=5)
 
         # 2. Scrollable Messages Area
         self.msg_container = tk.Frame(self, bg=style.BG_MAIN)
@@ -173,6 +193,30 @@ class ChatFrame(tk.Frame):
             self.load_messages()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to send message: {e}")
+
+    def award_points(self):
+        points = int(self.points_var.get())
+        if self.store.award_student_points(self.doubt_id, points):
+            self.doubt["student_points"] = points
+            messagebox.showinfo("Student recognition", f"⭐ {points}/10 points awarded to {self.doubt['student']}.")
+
+    def toggle_feature(self):
+        if self.doubt.get("featured"):
+            self.store.set_featured_doubt(self.doubt_id, False)
+            self.doubt["featured"] = False
+            self.doubt["featured_note"] = ""
+            self.feature_btn.config(text="📌 Feature")
+            return
+        note = simpledialog.askstring(
+            "Feature doubt", "Why is this doubt worth sharing? (optional)", parent=self
+        )
+        if note is None:
+            return
+        self.store.set_featured_doubt(self.doubt_id, True, note)
+        self.doubt["featured"] = True
+        self.doubt["featured_note"] = note.strip()
+        self.feature_btn.config(text="📌 Unfeature")
+        messagebox.showinfo("Featured doubt", "📌 This doubt is now visible to every student.")
 
     def update_status_buttons(self):
         if hasattr(self, "action_btn") and self.action_btn:

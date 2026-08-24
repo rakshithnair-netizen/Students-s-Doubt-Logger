@@ -106,7 +106,10 @@ class DoubtStore:
                 explain TEXT NOT NULL,
                 desc TEXT NOT NULL,
                 reply TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL DEFAULT 'Pending'
+                status TEXT NOT NULL DEFAULT 'Pending',
+                student_points INTEGER NOT NULL DEFAULT 0,
+                featured INTEGER NOT NULL DEFAULT 0,
+                featured_note TEXT NOT NULL DEFAULT ''
             )
         """)
         
@@ -115,6 +118,15 @@ class DoubtStore:
             cursor.execute("SELECT status FROM doubts LIMIT 1")
         except sqlite3.OperationalError:
             cursor.execute("ALTER TABLE doubts ADD COLUMN status TEXT NOT NULL DEFAULT 'Pending'")
+        for column, definition in (
+            ("student_points", "INTEGER NOT NULL DEFAULT 0"),
+            ("featured", "INTEGER NOT NULL DEFAULT 0"),
+            ("featured_note", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            try:
+                cursor.execute(f"SELECT {column} FROM doubts LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute(f"ALTER TABLE doubts ADD COLUMN {column} {definition}")
         
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS chat_messages (
@@ -361,7 +373,10 @@ class DoubtStore:
             "explain": explain,
             "desc": desc,
             "reply": "",
-            "status": "Pending"
+            "status": "Pending",
+            "student_points": 0,
+            "featured": False,
+            "featured_note": "",
         }
 
     def submit_reply(self, doubt_id, reply_text):
@@ -378,7 +393,7 @@ class DoubtStore:
         """Returns list of doubts submitted by a specific student."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply, status FROM doubts WHERE student = ?",
+            "SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply, status, student_points, featured, featured_note FROM doubts WHERE student = ?",
             (student_username,)
         )
         rows = cursor.fetchall()
@@ -393,7 +408,7 @@ class DoubtStore:
                 "explain": r[6],
                 "desc": r[7],
                 "reply": r[8],
-                "status": r[9]
+                "status": r[9], "student_points": r[10], "featured": bool(r[11]), "featured_note": r[12]
             }
             for r in rows
         ]
@@ -402,7 +417,7 @@ class DoubtStore:
         """Returns all doubts (for teachers)."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply, status FROM doubts"
+            "SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply, status, student_points, featured, featured_note FROM doubts"
         )
         rows = cursor.fetchall()
         return [
@@ -416,7 +431,7 @@ class DoubtStore:
                 "explain": r[6],
                 "desc": r[7],
                 "reply": r[8],
-                "status": r[9]
+                "status": r[9], "student_points": r[10], "featured": bool(r[11]), "featured_note": r[12]
             }
             for r in rows
         ]
@@ -425,7 +440,7 @@ class DoubtStore:
         """Returns doubts received by a specific teacher."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply, status FROM doubts WHERE teacher = ?",
+            "SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply, status, student_points, featured, featured_note FROM doubts WHERE teacher = ?",
             (teacher_username,)
         )
         rows = cursor.fetchall()
@@ -440,7 +455,7 @@ class DoubtStore:
                 "explain": r[6],
                 "desc": r[7],
                 "reply": r[8],
-                "status": r[9]
+                "status": r[9], "student_points": r[10], "featured": bool(r[11]), "featured_note": r[12]
             }
             for r in rows
         ]
@@ -478,6 +493,46 @@ class DoubtStore:
         cursor.execute("SELECT username FROM users WHERE role = 'teacher' AND active = 1")
         rows = cursor.fetchall()
         return [r[0] for r in rows]
+
+    def award_student_points(self, doubt_id, points):
+        """Records a teacher's 0–10 quality/engagement score for one doubt."""
+        if not isinstance(points, int) or not 0 <= points <= 10:
+            return False
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE doubts SET student_points = ? WHERE id = ?", (points, doubt_id))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def set_featured_doubt(self, doubt_id, featured, note=""):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE doubts SET featured = ?, featured_note = ? WHERE id = ?",
+            (1 if featured else 0, str(note).strip() if featured else "", doubt_id),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_student_leaderboard(self, limit=10):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """SELECT student, COALESCE(SUM(student_points), 0) AS points,
+                      COUNT(*) AS doubts
+               FROM doubts GROUP BY student
+               ORDER BY points DESC, doubts DESC, student ASC LIMIT ?""",
+            (limit,),
+        )
+        return [{"student": row[0], "points": row[1], "doubts": row[2]} for row in cursor.fetchall()]
+
+    def get_featured_doubts(self):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """SELECT id, student, subject, teacher, severity, urgent, explain, desc, reply, status, student_points, featured, featured_note
+               FROM doubts WHERE featured = 1 ORDER BY id DESC"""
+        )
+        return [
+            {"id": r[0], "student": r[1], "subject": r[2], "teacher": r[3], "severity": r[4], "urgent": r[5], "explain": r[6], "desc": r[7], "reply": r[8], "status": r[9], "student_points": r[10], "featured": bool(r[11]), "featured_note": r[12]}
+            for r in cursor.fetchall()
+        ]
 
     # ── Administration operations ─────────────────────────────────────
     def get_users(self):

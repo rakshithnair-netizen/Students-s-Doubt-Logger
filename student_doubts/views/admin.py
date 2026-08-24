@@ -53,7 +53,7 @@ class AdminDashboardFrame(tk.Frame):
     def _build_doubts_tab(self, notebook):
         tab = tk.Frame(notebook, bg=style.BG_CARD, padx=12, pady=12)
         notebook.add(tab, text="Doubt oversight")
-        table, self.doubt_tree = self._tree(tab, ("ID", "Student", "Subject", "Assigned to", "Severity", "Urgent", "Status"), {"ID": 48, "Student": 110, "Subject": 120, "Assigned to": 120, "Severity": 85, "Urgent": 70, "Status": 95})
+        table, self.doubt_tree = self._tree(tab, ("ID", "Student", "Subject", "Assigned to", "Severity", "Points", "Status"), {"ID": 48, "Student": 110, "Subject": 120, "Assigned to": 120, "Severity": 85, "Points": 70, "Status": 95})
         table.pack(side="left", fill="both", expand=True, padx=(0, 12))
         self.doubt_tree.bind("<<TreeviewSelect>>", self._on_doubt_selected)
 
@@ -118,7 +118,7 @@ class AdminDashboardFrame(tk.Frame):
             self.metric_vars[key].set(value)
         self.doubt_tree.delete(*self.doubt_tree.get_children())
         for doubt in self.store.get_all_doubts():
-            self.doubt_tree.insert("", "end", iid=str(doubt["id"]), values=(doubt["id"], doubt["student"], doubt["subject"], doubt["teacher"] or "Unassigned", doubt["severity"], doubt["urgent"], doubt["status"]))
+            self.doubt_tree.insert("", "end", iid=str(doubt["id"]), values=(doubt["id"], doubt["student"], doubt["subject"], doubt["teacher"] or "Unassigned", doubt["severity"], f"⭐ {doubt.get('student_points', 0)}", doubt["status"]))
         self.user_tree.delete(*self.user_tree.get_children())
         for user in self.store.get_users():
             status = "Active" if user["active"] else "Deactivated"
