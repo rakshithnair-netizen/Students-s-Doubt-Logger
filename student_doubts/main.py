@@ -4,6 +4,7 @@ from views import style
 from views.login import LoginFrame
 from views.student import StudentDashboardFrame
 from views.teacher import TeacherDashboardFrame
+from views.admin import AdminDashboardFrame
 
 class App(tk.Tk):
     def __init__(self):
@@ -54,8 +55,10 @@ class App(tk.Tk):
     def on_login_success(self, username, role):
         if role == "student":
             self.show_student_dashboard(username)
-        else:
+        elif role == "teacher":
             self.show_teacher_dashboard(username)
+        elif role == "admin":
+            self.show_admin_dashboard(username)
 
     def show_header(self, title):
         """Loads header frame with custom title and logout button."""
@@ -106,6 +109,13 @@ class App(tk.Tk):
         self.show_header(f"Teacher Portal | Logged in as: {username}")
         
         self.current_frame = TeacherDashboardFrame(self.container, self.store, username)
+        self.current_frame.pack(fill="both", expand=True)
+
+    def show_admin_dashboard(self, username):
+        self.clear_current_frame()
+        self.geometry("1120x680")
+        self.show_header(f"Administration Portal | Logged in as: {username}")
+        self.current_frame = AdminDashboardFrame(self.container, self.store, username)
         self.current_frame.pack(fill="both", expand=True)
 
 

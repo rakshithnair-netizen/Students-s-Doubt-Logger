@@ -188,10 +188,13 @@ class StudentDashboardFrame(tk.Frame):
             explain_display = "📝 Yes" if d.get("explain") == "Yes" else "No"
 
             status = d.get("status", "Pending")
-            if status == "Resolved":
-                status_display = "✅ Resolved"
-            else:
-                status_display = "⌛ Pending"
+            status_badges = {
+                "Pending": "⌛ Pending",
+                "Assigned": "👤 Assigned",
+                "Replied": "💬 Replied",
+                "Resolved": "✅ Resolved",
+            }
+            status_display = status_badges.get(status, status)
 
 
             self.tree.insert("", "end", values=(
