@@ -28,6 +28,8 @@ class TeacherDashboardFrame(tk.Frame):
                      values=tuple(str(n) for n in range(1, 16)), state="readonly", width=3).pack(side="left")
         tk.Button(routing_card, text="Save", font=style.FONT_BODY, bg=style.COLOR_PRIMARY, fg="white",
                   relief="flat", cursor="hand2", command=self.save_routing_availability).pack(side="left", padx=8, ipady=2)
+        tk.Button(routing_card, text="My subjects", font=style.FONT_BODY, bg=style.BG_INPUT, fg=style.FG_DARK,
+                  relief="flat", cursor="hand2", command=self.open_subjects_dialog).pack(side="left", padx=(0, 8), ipady=2)
         tk.Label(routing_card, textvariable=self.workload_var, font=style.FONT_BODY,
                  bg=style.BG_CARD, fg=style.FG_MUTED).pack(side="right", padx=10)
         self.table_card = tk.LabelFrame(self.main, text="Student Doubts", font=style.FONT_TITLE, bg=style.BG_CARD, fg=style.FG_DARK, padx=10, pady=10, bd=1, relief="solid")
@@ -67,6 +69,42 @@ class TeacherDashboardFrame(tk.Frame):
             return
         self.refresh_routing_profile()
         messagebox.showinfo("Availability", "Routing availability updated.")
+
+    def open_subjects_dialog(self):
+        dialog = tk.Toplevel(self)
+        dialog.title("Subjects I can resolve")
+        dialog.configure(bg=style.BG_CARD)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        tk.Label(dialog, text="Choose the subjects you are qualified to resolve.", font=style.FONT_LABEL,
+                 bg=style.BG_CARD, fg=style.FG_DARK).pack(anchor="w", padx=16, pady=(16, 4))
+        tk.Label(dialog, text="Students and automatic routing will only see you for these subjects.",
+                 font=style.FONT_BODY, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", padx=16, pady=(0, 10))
+        subjects = self.store.get_subjects()
+        selected_subjects = set(self.store.get_teacher_subjects(self.username))
+        subject_list = tk.Listbox(dialog, selectmode="multiple", height=max(4, min(10, len(subjects))),
+                                  font=style.FONT_BODY, bg=style.BG_INPUT, fg=style.FG_DARK, exportselection=False)
+        subject_list.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+        for index, subject in enumerate(subjects):
+            subject_list.insert("end", subject)
+            if subject in selected_subjects:
+                subject_list.selection_set(index)
+
+        def save_subjects():
+            chosen = [subjects[index] for index in subject_list.curselection()]
+            if not self.store.set_teacher_subjects(self.username, chosen):
+                messagebox.showerror("Subjects", "Could not save subject expertise.", parent=dialog)
+                return
+            dialog.destroy()
+            messagebox.showinfo("Subjects", "Your subject expertise has been saved.")
+
+        controls = tk.Frame(dialog, bg=style.BG_CARD)
+        controls.pack(fill="x", padx=16, pady=(0, 16))
+        tk.Button(controls, text="Cancel", font=style.FONT_LABEL, bg=style.BG_INPUT, fg=style.FG_DARK,
+                  relief="flat", command=dialog.destroy).pack(side="right")
+        tk.Button(controls, text="Save subjects", font=style.FONT_LABEL, bg=style.COLOR_PRIMARY, fg="white",
+                  relief="flat", command=save_subjects).pack(side="right", padx=(0, 8))
 
     def _build_sidebar(self):
         self.sidebar = tk.LabelFrame(self.main, text="🏆 Learning Community", font=style.FONT_TITLE, bg=style.BG_CARD, fg=style.FG_DARK, padx=10, pady=10, bd=1, relief="solid", width=255)

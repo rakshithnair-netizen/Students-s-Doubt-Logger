@@ -449,8 +449,7 @@ class DoubtStore:
                FROM users u
                LEFT JOIN doubts d ON d.teacher = u.username
                WHERE u.role = 'teacher' AND u.active = 1 AND u.availability = 'Available'
-                 AND (EXISTS (SELECT 1 FROM teacher_subjects ts WHERE ts.teacher = u.username AND ts.subject = ?)
-                      OR NOT EXISTS (SELECT 1 FROM teacher_subjects ts WHERE ts.teacher = u.username))
+                 AND EXISTS (SELECT 1 FROM teacher_subjects ts WHERE ts.teacher = u.username AND ts.subject = ?)
                GROUP BY u.username
                HAVING active_count < u.max_active_doubts
                ORDER BY (active_count * 3) + (overdue_count * 5) + (assigned_today * 2) ASC,
@@ -461,6 +460,43 @@ class DoubtStore:
         )
         row = cursor.fetchone()
         return row[0] if row else None
+
+    def get_teachers_for_subject(self, subject):
+        """Active teachers explicitly qualified for one subject, regardless of availability."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """SELECT u.username, u.availability, u.max_active_doubts,
+                      COUNT(CASE WHEN d.status != 'Resolved' THEN 1 END) AS active_doubts
+               FROM users u
+               JOIN teacher_subjects ts ON ts.teacher = u.username AND ts.subject = ?
+               LEFT JOIN doubts d ON d.teacher = u.username
+               WHERE u.role = 'teacher' AND u.active = 1
+               GROUP BY u.username
+               ORDER BY u.username COLLATE NOCASE""",
+            (subject,),
+        )
+        return [dict(zip(("username", "availability", "max_active_doubts", "active_doubts"), row))
+                for row in cursor.fetchall()]
+
+    def get_teacher_subjects(self, username):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT subject FROM teacher_subjects WHERE teacher = ? ORDER BY subject COLLATE NOCASE", (username,))
+        return [row[0] for row in cursor.fetchall()]
+
+    def set_teacher_subjects(self, username, subjects):
+        clean_subjects = sorted({str(subject).strip() for subject in subjects if str(subject).strip()})
+        available_subjects = set(self.get_subjects())
+        if not set(clean_subjects).issubset(available_subjects):
+            return False
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT 1 FROM users WHERE username = ? AND role = 'teacher'", (username,))
+        if not cursor.fetchone():
+            return False
+        cursor.execute("DELETE FROM teacher_subjects WHERE teacher = ?", (username,))
+        cursor.executemany("INSERT INTO teacher_subjects (teacher, subject) VALUES (?, ?)",
+                           [(username, subject) for subject in clean_subjects])
+        self.conn.commit()
+        return True
 
     def get_teacher_routing_profile(self, username):
         cursor = self.conn.cursor()
