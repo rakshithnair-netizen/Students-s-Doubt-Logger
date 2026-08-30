@@ -14,6 +14,22 @@ class TeacherDashboardFrame(tk.Frame):
     def _build(self):
         self.main = tk.Frame(self, bg=style.BG_MAIN)
         self.main.pack(fill="both", expand=True, padx=15, pady=15)
+        routing_card = tk.Frame(self.main, bg=style.BG_CARD, bd=1, relief="solid")
+        routing_card.pack(fill="x", pady=(0, 10))
+        tk.Label(routing_card, text="Routing availability", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_DARK).pack(side="left", padx=(10, 8), pady=8)
+        profile = self.store.get_teacher_routing_profile(self.username) or {}
+        self.availability_var = tk.StringVar(value=profile.get("availability", "Available"))
+        self.capacity_var = tk.StringVar(value=str(profile.get("max_active_doubts", 5)))
+        self.workload_var = tk.StringVar(value="")
+        ttk.Combobox(routing_card, textvariable=self.availability_var,
+                     values=("Available", "Busy", "Unavailable"), state="readonly", width=13).pack(side="left", pady=8)
+        tk.Label(routing_card, text="Capacity", font=style.FONT_BODY, bg=style.BG_CARD, fg=style.FG_MUTED).pack(side="left", padx=(12, 4))
+        ttk.Combobox(routing_card, textvariable=self.capacity_var,
+                     values=tuple(str(n) for n in range(1, 16)), state="readonly", width=3).pack(side="left")
+        tk.Button(routing_card, text="Save", font=style.FONT_BODY, bg=style.COLOR_PRIMARY, fg="white",
+                  relief="flat", cursor="hand2", command=self.save_routing_availability).pack(side="left", padx=8, ipady=2)
+        tk.Label(routing_card, textvariable=self.workload_var, font=style.FONT_BODY,
+                 bg=style.BG_CARD, fg=style.FG_MUTED).pack(side="right", padx=10)
         self.table_card = tk.LabelFrame(self.main, text="Student Doubts", font=style.FONT_TITLE, bg=style.BG_CARD, fg=style.FG_DARK, padx=10, pady=10, bd=1, relief="solid")
         self.table_card.pack(side="left", fill="both", expand=True, padx=(0, 10))
 
@@ -38,6 +54,19 @@ class TeacherDashboardFrame(tk.Frame):
         actions = tk.Frame(self.table_card, bg=style.BG_CARD); actions.pack(fill="x", pady=(9, 0))
         tk.Button(actions, text="💬 Open selected chat", font=style.FONT_LABEL, bg=style.COLOR_PRIMARY, fg="white", relief="flat", cursor="hand2", command=self.open_selected).pack(side="left", ipadx=10, ipady=3)
         self._build_sidebar()
+        self.refresh_routing_profile()
+
+    def refresh_routing_profile(self):
+        profile = self.store.get_teacher_routing_profile(self.username)
+        if profile:
+            self.workload_var.set(f"Active doubts: {profile['active_doubts']} / {profile['max_active_doubts']}")
+
+    def save_routing_availability(self):
+        if not self.store.set_teacher_availability(self.username, self.availability_var.get(), self.capacity_var.get()):
+            messagebox.showwarning("Availability", "Choose a valid status and capacity.")
+            return
+        self.refresh_routing_profile()
+        messagebox.showinfo("Availability", "Routing availability updated.")
 
     def _build_sidebar(self):
         self.sidebar = tk.LabelFrame(self.main, text="🏆 Learning Community", font=style.FONT_TITLE, bg=style.BG_CARD, fg=style.FG_DARK, padx=10, pady=10, bd=1, relief="solid", width=255)
@@ -80,6 +109,7 @@ class TeacherDashboardFrame(tk.Frame):
             badge = {"High": "🔴 High", "Medium": "🟡 Medium", "Low": "🟢 Low"}.get(d["severity"], d["severity"]); status = {"Pending": "⌛ Pending", "Assigned": "👤 Assigned", "Replied": "💬 Replied", "Resolved": "✅ Resolved"}.get(d["status"], d["status"])
             self.tree.insert("", "end", iid=str(d["id"]), values=(d["id"], d["student"], d["subject"], badge, f"⭐ {d.get('student_points', 0)}", d["desc"], status))
         self.refresh_community()
+        self.refresh_routing_profile()
 
     def refresh_community(self):
         self.leaderboard.delete(0, "end"); medals = ("🥇", "🥈", "🥉")

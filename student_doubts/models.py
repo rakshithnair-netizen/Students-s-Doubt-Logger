@@ -1,6 +1,7 @@
 import os
 import json
 import sqlite3
+from datetime import datetime
 
 class DoubtStore:
     def __init__(self):
@@ -78,7 +79,10 @@ class DoubtStore:
                 username TEXT PRIMARY KEY,
                 password TEXT NOT NULL,
                 role TEXT NOT NULL,
-                active INTEGER NOT NULL DEFAULT 1
+                active INTEGER NOT NULL DEFAULT 1,
+                availability TEXT NOT NULL DEFAULT 'Available',
+                max_active_doubts INTEGER NOT NULL DEFAULT 5,
+                last_assignment_at TEXT NOT NULL DEFAULT ''
             )
         """)
 
@@ -88,6 +92,15 @@ class DoubtStore:
             cursor.execute("SELECT active FROM users LIMIT 1")
         except sqlite3.OperationalError:
             cursor.execute("ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+        for column, definition in (
+            ("availability", "TEXT NOT NULL DEFAULT 'Available'"),
+            ("max_active_doubts", "INTEGER NOT NULL DEFAULT 5"),
+            ("last_assignment_at", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            try:
+                cursor.execute(f"SELECT {column} FROM users LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
         
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS subjects (
@@ -109,7 +122,10 @@ class DoubtStore:
                 status TEXT NOT NULL DEFAULT 'Pending',
                 student_points INTEGER NOT NULL DEFAULT 0,
                 featured INTEGER NOT NULL DEFAULT 0,
-                featured_note TEXT NOT NULL DEFAULT ''
+                featured_note TEXT NOT NULL DEFAULT '',
+                assignment_preference TEXT NOT NULL DEFAULT 'Preferred teacher',
+                assigned_at TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT ''
             )
         """)
         
@@ -122,11 +138,24 @@ class DoubtStore:
             ("student_points", "INTEGER NOT NULL DEFAULT 0"),
             ("featured", "INTEGER NOT NULL DEFAULT 0"),
             ("featured_note", "TEXT NOT NULL DEFAULT ''"),
+            ("assignment_preference", "TEXT NOT NULL DEFAULT 'Preferred teacher'"),
+            ("assigned_at", "TEXT NOT NULL DEFAULT ''"),
+            ("created_at", "TEXT NOT NULL DEFAULT ''"),
         ):
             try:
                 cursor.execute(f"SELECT {column} FROM doubts LIMIT 1")
             except sqlite3.OperationalError:
                 cursor.execute(f"ALTER TABLE doubts ADD COLUMN {column} {definition}")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS teacher_subjects (
+                teacher TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                PRIMARY KEY (teacher, subject),
+                FOREIGN KEY (teacher) REFERENCES users(username) ON DELETE CASCADE,
+                FOREIGN KEY (subject) REFERENCES subjects(subject) ON DELETE CASCADE
+            )
+        """)
         
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS chat_messages (
@@ -379,6 +408,98 @@ class DoubtStore:
             "featured_note": "",
         }
 
+    def create_routed_doubt(self, student, subject, preference, preferred_teacher, severity, desc):
+        """Create a doubt and route it according to the student's stated priority."""
+        if preference not in ("Preferred teacher", "Fastest available"):
+            raise ValueError("Invalid assignment preference")
+        if preference == "Preferred teacher":
+            if not preferred_teacher:
+                raise ValueError("Choose a preferred teacher")
+            teacher = preferred_teacher
+        else:
+            teacher = self.recommend_teacher(subject)
+            if not teacher:
+                raise ValueError("No available teacher can currently take this subject")
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """INSERT INTO doubts
+               (student, subject, teacher, severity, urgent, explain, desc, reply, status,
+                assignment_preference, assigned_at, created_at)
+               VALUES (?, ?, ?, ?, 'No', 'No', ?, '', 'Assigned', ?, ?, ?)""",
+            (student, subject, teacher, severity, desc, preference, now, now),
+        )
+        doubt_id = cursor.lastrowid
+        cursor.execute("UPDATE users SET last_assignment_at = ? WHERE username = ?", (now, teacher))
+        self.conn.commit()
+        return doubt_id, teacher
+
+    def recommend_teacher(self, subject):
+        """Return the least-loaded available subject specialist, with fair tie-breaking."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """SELECT u.username, u.last_assignment_at,
+                      COALESCE(SUM(CASE WHEN d.status != 'Resolved' THEN 1 ELSE 0 END), 0) AS active_count,
+                      COALESCE(SUM(CASE WHEN d.status IN ('Pending', 'Assigned')
+                               AND d.assigned_at != ''
+                               AND datetime(d.assigned_at) <= datetime('now', '-24 hours')
+                               THEN 1 ELSE 0 END), 0) AS overdue_count,
+                      COALESCE(SUM(CASE WHEN date(d.assigned_at) = date('now') THEN 1 ELSE 0 END), 0) AS assigned_today
+               FROM users u
+               LEFT JOIN doubts d ON d.teacher = u.username
+               WHERE u.role = 'teacher' AND u.active = 1 AND u.availability = 'Available'
+                 AND (EXISTS (SELECT 1 FROM teacher_subjects ts WHERE ts.teacher = u.username AND ts.subject = ?)
+                      OR NOT EXISTS (SELECT 1 FROM teacher_subjects ts WHERE ts.teacher = u.username))
+               GROUP BY u.username
+               HAVING active_count < u.max_active_doubts
+               ORDER BY (active_count * 3) + (overdue_count * 5) + (assigned_today * 2) ASC,
+                        CASE WHEN u.last_assignment_at = '' THEN 0 ELSE 1 END ASC,
+                        u.last_assignment_at ASC, u.username ASC
+               LIMIT 1""",
+            (subject,),
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def get_teacher_routing_profile(self, username):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT availability, max_active_doubts FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        cursor.execute("SELECT COUNT(*) FROM doubts WHERE teacher = ? AND status != 'Resolved'", (username,))
+        return {"availability": row[0], "max_active_doubts": row[1], "active_doubts": cursor.fetchone()[0]}
+
+    def set_teacher_availability(self, username, availability, max_active_doubts):
+        if availability not in ("Available", "Busy", "Unavailable"):
+            return False
+        try:
+            capacity = int(max_active_doubts)
+        except (TypeError, ValueError):
+            return False
+        if not 1 <= capacity <= 25:
+            return False
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE users SET availability = ?, max_active_doubts = ? WHERE username = ? AND role = 'teacher'",
+                       (availability, capacity, username))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_escalated_doubts(self, threshold_hours=48):
+        """Only unanswered, overdue assigned doubts need administrative intervention."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """SELECT id, student, subject, teacher, severity, status, assigned_at
+               FROM doubts
+               WHERE status IN ('Pending', 'Assigned') AND assigned_at != ''
+                 AND datetime(assigned_at) <= datetime('now', ?)
+               ORDER BY datetime(assigned_at) ASC""",
+            (f"-{int(threshold_hours)} hours",),
+        )
+        return [dict(zip(("id", "student", "subject", "teacher", "severity", "status", "assigned_at"), row))
+                for row in cursor.fetchall()]
+
     def submit_reply(self, doubt_id, reply_text):
         """Finds doubt by ID and sets the reply text."""
         cursor = self.conn.cursor()
@@ -594,11 +715,13 @@ class DoubtStore:
         return cursor.rowcount > 0
 
     def assign_doubt(self, doubt_id, teacher):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor = self.conn.cursor()
         cursor.execute(
-            "UPDATE doubts SET teacher = ?, status = CASE WHEN status = 'Pending' THEN 'Assigned' ELSE status END WHERE id = ?",
-            (teacher, doubt_id),
+            "UPDATE doubts SET teacher = ?, assigned_at = ?, status = CASE WHEN status = 'Pending' THEN 'Assigned' ELSE status END WHERE id = ?",
+            (teacher, now, doubt_id),
         )
+        cursor.execute("UPDATE users SET last_assignment_at = ? WHERE username = ?", (now, teacher))
         self.conn.commit()
         return cursor.rowcount > 0
 
@@ -650,6 +773,13 @@ class DoubtStore:
         cursor.execute(
             "INSERT INTO chat_messages (doubt_id, sender, message) VALUES (?, ?, ?)",
             (doubt_id, sender, message)
+        )
+        # A teacher's first chat reply acknowledges the doubt and prevents an
+        # unnecessary last-resort admin escalation.
+        cursor.execute(
+            """UPDATE doubts SET status = 'Replied'
+               WHERE id = ? AND teacher = ? AND status IN ('Pending', 'Assigned')""",
+            (doubt_id, sender),
         )
         self.conn.commit()
 
