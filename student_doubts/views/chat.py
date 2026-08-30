@@ -2,6 +2,75 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from . import style
 
+
+class FeaturedDoubtDialog(tk.Toplevel):
+    """A read-only, privacy-conscious view of a teacher-curated discussion."""
+
+    def __init__(self, parent, store, doubt):
+        super().__init__(parent)
+        self.store = store
+        self.doubt = doubt
+        self.title(f"Featured doubt — {doubt['subject']}")
+        self.configure(bg=style.BG_MAIN)
+        self.transient(parent.winfo_toplevel())
+        self.grab_set()
+        self.minsize(620, 480)
+        self.geometry("720x590")
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self._build()
+
+    def _build(self):
+        header = tk.Frame(self, bg="#ede9fe", padx=16, pady=12)
+        header.pack(fill="x")
+        tk.Label(header, text="📌 Featured learning discussion", font=style.FONT_TITLE,
+                 bg="#ede9fe", fg="#5b21b6").pack(anchor="w")
+        tk.Label(header, text=f"{self.doubt['subject']}  •  {self.doubt['status']}",
+                 font=style.FONT_LABEL, bg="#ede9fe", fg=style.FG_MUTED).pack(anchor="w", pady=(3, 0))
+        note = self.doubt.get("featured_note", "").strip()
+        if note:
+            tk.Label(header, text=f"Why it was shared: {note}", wraplength=670,
+                     justify="left", font=style.FONT_BODY, bg="#ede9fe", fg=style.FG_DARK).pack(anchor="w", pady=(7, 0))
+
+        body = tk.Frame(self, bg=style.BG_MAIN)
+        body.pack(fill="both", expand=True, padx=14, pady=12)
+        scrollbar = ttk.Scrollbar(body)
+        scrollbar.pack(side="right", fill="y")
+        transcript = tk.Text(body, wrap="word", state="normal", bg=style.BG_CARD,
+                             fg=style.FG_DARK, font=style.FONT_INPUT,
+                             yscrollcommand=scrollbar.set, bd=1, relief="solid",
+                             padx=14, pady=12)
+        transcript.pack(fill="both", expand=True)
+        scrollbar.config(command=transcript.yview)
+        transcript.tag_configure("student", foreground=style.COLOR_PRIMARY, font=style.FONT_LABEL)
+        transcript.tag_configure("teacher", foreground=style.COLOR_SUCCESS, font=style.FONT_LABEL)
+        transcript.tag_configure("meta", foreground=style.FG_MUTED, font=style.FONT_BODY)
+        transcript.tag_configure("divider", foreground=style.BORDER_COLOR)
+
+        # Student names are intentionally not shared with the wider student community.
+        self._entry(transcript, "Student's question", self.doubt.get("desc", ""), "student")
+        reply = self.doubt.get("reply", "").strip()
+        if reply:
+            self._entry(transcript, f"{self.doubt.get('teacher', 'Teacher')}'s reply", reply, "teacher")
+        for message in self.store.get_chat_messages(self.doubt["id"]):
+            is_student = message["sender"] == self.doubt.get("student")
+            speaker = "Student" if is_student else self.doubt.get("teacher", "Teacher")
+            self._entry(transcript, f"{speaker}  •  {message['timestamp']}", message["message"],
+                        "student" if is_student else "teacher")
+        transcript.config(state="disabled")
+
+        footer = tk.Frame(self, bg=style.BG_MAIN)
+        footer.pack(fill="x", padx=14, pady=(0, 12))
+        tk.Label(footer, text="Read-only shared discussion", font=style.FONT_BODY,
+                 bg=style.BG_MAIN, fg=style.FG_MUTED).pack(side="left")
+        tk.Button(footer, text="Close", font=style.FONT_LABEL, bg=style.COLOR_PRIMARY,
+                  fg="white", relief="flat", cursor="hand2", command=self.destroy).pack(side="right", ipadx=14, ipady=3)
+
+    @staticmethod
+    def _entry(transcript, heading, content, tag):
+        transcript.insert("end", f"{heading}\n", tag)
+        transcript.insert("end", f"{content}\n\n")
+        transcript.insert("end", "─" * 64 + "\n", "divider")
+
 class ChatFrame(tk.Frame):
     def __init__(self, parent, store, doubt_id, current_user, on_back):
         super().__init__(parent, bg=style.BG_MAIN)
