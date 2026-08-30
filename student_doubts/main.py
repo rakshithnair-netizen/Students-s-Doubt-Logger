@@ -63,7 +63,9 @@ class App(tk.Tk):
     def show_header(self, title):
         """Loads header frame with custom title and logout button."""
         self.header_frame = tk.Frame(self, bg=style.FG_DARK, height=50)
-        self.header_frame.pack(fill="x", side="top")
+        # The content container is created at startup, so explicitly insert the
+        # header before it; otherwise Tk's pack order places the header below it.
+        self.header_frame.pack(fill="x", side="top", before=self.container)
         self.header_frame.pack_propagate(False)
 
         tk.Label(

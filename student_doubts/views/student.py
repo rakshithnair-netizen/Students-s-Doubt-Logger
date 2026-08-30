@@ -58,7 +58,7 @@ class StudentDashboardFrame(tk.Frame):
                        command=self._update_assignment_preference).pack(anchor="w")
         self.assignment_hint = tk.StringVar(value="Your chosen teacher will receive this doubt.")
         tk.Label(left_frame, textvariable=self.assignment_hint, wraplength=310, justify="left",
-                 font=style.FONT_BODY, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(-6, 10))
+                 font=style.FONT_BODY, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(0, 10))
 
         # Severity level Radio buttons
         tk.Label(left_frame, text="Severity Level", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(5, 2))
