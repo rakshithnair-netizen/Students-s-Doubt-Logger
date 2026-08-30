@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from . import style
-from .chat import ChatFrame
+from .chat import ChatFrame, FeaturedDoubtDialog
 
 
 class TeacherDashboardFrame(tk.Frame):
@@ -48,7 +48,8 @@ class TeacherDashboardFrame(tk.Frame):
         self.feature_subject_var = tk.StringVar(value="All subjects")
         self.feature_subject = ttk.Combobox(self.sidebar, textvariable=self.feature_subject_var, state="readonly", font=style.FONT_BODY); self.feature_subject.pack(fill="x", pady=(3, 5)); self.feature_subject.bind("<<ComboboxSelected>>", lambda _event: self.refresh_featured())
         self.featured = tk.Listbox(self.sidebar, font=style.FONT_BODY, bg=style.BG_INPUT, fg=style.FG_DARK); self.featured.pack(fill="both", expand=True)
-        tk.Label(self.sidebar, text="Open a chat to award ⭐ points or share a great doubt.", wraplength=220, justify="left", font=style.FONT_BODY, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(6, 0))
+        self.featured.bind("<ButtonRelease-1>", self.open_featured_doubt); self.featured.bind("<Return>", self.open_featured_doubt)
+        tk.Label(self.sidebar, text="Click a shared discussion to preview the read-only student view.", wraplength=220, justify="left", font=style.FONT_BODY, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(6, 0))
 
     def _combo(self, parent, variable, width):
         combo = ttk.Combobox(parent, textvariable=variable, state="readonly", font=style.FONT_BODY, width=width); combo.pack(side="left", padx=(0, 4)); combo.bind("<<ComboboxSelected>>", lambda _event: self.load_list()); return combo
@@ -87,8 +88,16 @@ class TeacherDashboardFrame(tk.Frame):
 
     def refresh_featured(self):
         doubts = self.store.get_featured_doubts(); self.feature_subject["values"] = ["All subjects"] + sorted({d["subject"] for d in doubts}); self.featured.delete(0, "end")
+        self.featured_doubts = []
         for d in doubts:
-            if self.feature_subject_var.get() == "All subjects" or d["subject"] == self.feature_subject_var.get(): self.featured.insert("end", f"📌 {d['subject']}: {d['desc'][:58]}")
+            if self.feature_subject_var.get() == "All subjects" or d["subject"] == self.feature_subject_var.get():
+                self.featured.insert("end", f"📌 {d['subject']}: {d['desc'][:58]}")
+                self.featured_doubts.append(d)
+
+    def open_featured_doubt(self, _event=None):
+        selection = self.featured.curselection()
+        if selection:
+            FeaturedDoubtDialog(self, self.store, self.featured_doubts[selection[0]])
 
     def _select(self, _event=None):
         selected = self.tree.selection(); self.selected_doubt_id = int(selected[0]) if selected else None

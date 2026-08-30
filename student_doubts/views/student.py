@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from . import style
-from .chat import ChatFrame
+from .chat import ChatFrame, FeaturedDoubtDialog
 
 class StudentDashboardFrame(tk.Frame):
     def __init__(self, parent, store, username):
@@ -212,7 +212,9 @@ class StudentDashboardFrame(tk.Frame):
         self.featured_list = tk.Listbox(sidebar, font=style.FONT_BODY, bg=style.BG_INPUT,
                                         fg=style.FG_DARK, bd=1, relief="solid")
         self.featured_list.pack(fill="both", expand=True)
-        tk.Label(sidebar, text="Shared by teachers for everyone to learn from.", wraplength=215,
+        self.featured_list.bind("<ButtonRelease-1>", self.open_featured_doubt)
+        self.featured_list.bind("<Return>", self.open_featured_doubt)
+        tk.Label(sidebar, text="Click a shared discussion to read it. Student names stay private.", wraplength=215,
                  justify="left", font=style.FONT_BODY, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(6, 0))
 
     def refresh_community(self):
@@ -229,11 +231,18 @@ class StudentDashboardFrame(tk.Frame):
         self.feature_subject_combo["values"] = ["All subjects"] + subjects
         selected = self.feature_subject_var.get()
         self.featured_list.delete(0, "end")
+        self.featured_doubts = []
         for doubt in doubts:
             if selected != "All subjects" and doubt["subject"] != selected:
                 continue
             note = f" — {doubt['featured_note']}" if doubt.get("featured_note") else ""
             self.featured_list.insert("end", f"📌 {doubt['subject']}: {doubt['desc'][:55]}{note}")
+            self.featured_doubts.append(doubt)
+
+    def open_featured_doubt(self, _event=None):
+        selection = self.featured_list.curselection()
+        if selection:
+            FeaturedDoubtDialog(self, self.store, self.featured_doubts[selection[0]])
 
     def _make_filter_combo(self, parent, variable, width):
         combo = ttk.Combobox(parent, textvariable=variable, state="readonly",
