@@ -39,12 +39,27 @@ class StudentDashboardFrame(tk.Frame):
         self.subj_combo = ttk.Combobox(left_frame, values=self.store.get_subjects(), state="readonly", font=style.FONT_INPUT)
         self.subj_combo.pack(fill="x", pady=(0, 10))
         self.subj_combo.set("Select Subject")
+        self.subj_combo.bind("<<ComboboxSelected>>", lambda _event: self.update_teacher_choices())
 
         # Teacher Combobox
-        tk.Label(left_frame, text="Teacher", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(5, 2))
-        self.teacher_combo = ttk.Combobox(left_frame, values=self.store.get_teachers(), state="readonly", font=style.FONT_INPUT)
+        tk.Label(left_frame, text="Preferred teacher (optional for fastest routing)", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(5, 2))
+        self.teacher_combo = ttk.Combobox(left_frame, state="disabled", font=style.FONT_INPUT)
         self.teacher_combo.pack(fill="x", pady=(0, 10))
         self.teacher_combo.set("Select Teacher")
+
+        tk.Label(left_frame, text="Resolution preference", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(2, 2))
+        self.assignment_preference = tk.StringVar(value="Preferred teacher")
+        preference_frame = tk.Frame(left_frame, bg=style.BG_CARD)
+        preference_frame.pack(fill="x", pady=(0, 10))
+        tk.Radiobutton(preference_frame, text="Preferred teacher", variable=self.assignment_preference,
+                       value="Preferred teacher", bg=style.BG_CARD, activebackground=style.BG_CARD,
+                       command=self._update_assignment_preference).pack(anchor="w")
+        tk.Radiobutton(preference_frame, text="Fastest available", variable=self.assignment_preference,
+                       value="Fastest available", bg=style.BG_CARD, activebackground=style.BG_CARD,
+                       command=self._update_assignment_preference).pack(anchor="w")
+        self.assignment_hint = tk.StringVar(value="Your chosen teacher will receive this doubt.")
+        tk.Label(left_frame, textvariable=self.assignment_hint, wraplength=310, justify="left",
+                 font=style.FONT_BODY, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(0, 10))
 
         # Severity level Radio buttons
         tk.Label(left_frame, text="Severity Level", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(5, 2))
@@ -332,21 +347,49 @@ class StudentDashboardFrame(tk.Frame):
         t = self.teacher_combo.get()
         sev = self.severity.get()
         d = self.desc_t.get("1.0", "end").strip()
+        preference = self.assignment_preference.get()
 
-        if s == "Select Subject" or t == "Select Teacher" or not d or not sev:
+        if s == "Select Subject" or not d or not sev or (preference == "Preferred teacher" and t not in self.teacher_combo["values"]):
             messagebox.showwarning("Warning", "Please fill all fields before submitting.")
             return
 
-        self.store.add_doubt(self.username, s, t, sev, "No", "No", d)
+        try:
+            _, assigned_teacher = self.store.create_routed_doubt(self.username, s, preference, t if preference == "Preferred teacher" else "", sev, d)
+        except ValueError as error:
+            messagebox.showwarning("Routing unavailable", str(error))
+            return
 
         # Clear inputs
         self.subj_combo.set("Select Subject")
         self.teacher_combo.set("Select Teacher")
+        self.assignment_preference.set("Preferred teacher")
+        self._update_assignment_preference()
         self.severity.set("Low")
         self.desc_t.delete("1.0", "end")
 
         self.refresh_list()
-        messagebox.showinfo("Success", "Doubt submitted successfully!")
+        messagebox.showinfo("Assigned", f"Your doubt was assigned to {assigned_teacher}.")
+
+    def update_teacher_choices(self):
+        subject = self.subj_combo.get()
+        teachers = self.store.get_teachers_for_subject(subject) if subject != "Select Subject" else []
+        self.teacher_combo["values"] = [teacher["username"] for teacher in teachers]
+        self.teacher_combo.set("Select Teacher" if teachers else "No qualified teachers")
+        if self.assignment_preference.get() == "Preferred teacher":
+            self.teacher_combo.configure(state="readonly" if teachers else "disabled")
+        if not teachers:
+            self.assignment_hint.set("No teacher has selected this subject yet. Choose another subject or ask a teacher to add it.")
+        elif self.assignment_preference.get() == "Preferred teacher":
+            self.assignment_hint.set("Only teachers qualified for this subject are shown.")
+
+    def _update_assignment_preference(self):
+        fastest = self.assignment_preference.get() == "Fastest available"
+        has_qualified_teacher = bool(self.store.get_teachers_for_subject(self.subj_combo.get())) if self.subj_combo.get() != "Select Subject" else False
+        self.teacher_combo.configure(state="disabled" if fastest or not has_qualified_teacher else "readonly")
+        self.assignment_hint.set(
+            "The system will choose the least-loaded available teacher." if fastest
+            else "Your chosen teacher will receive this doubt; you can switch to fastest available later if needed."
+        )
 
     def get_selected_doubt_id(self):
         sel = self.tree.selection()

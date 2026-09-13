@@ -5,7 +5,7 @@ from . import style
 
 
 class AdminDashboardFrame(tk.Frame):
-    """Administration workspace for people, academic categories, and doubts."""
+    """Administration workspace for people and last-resort routing exceptions."""
 
     STATUSES = ("Pending", "Assigned", "Replied", "Resolved")
     ROLES = ("student", "teacher", "admin")
@@ -25,7 +25,7 @@ class AdminDashboardFrame(tk.Frame):
         self.metrics = tk.Frame(outer, bg=style.BG_MAIN)
         self.metrics.pack(fill="x", pady=(0, 12))
         self.metric_vars = {key: tk.StringVar(value="—") for key in ("active_users", "total_doubts", "open_doubts", "top_subject")}
-        labels = (("Active users", "active_users"), ("All doubts", "total_doubts"), ("Needs attention", "open_doubts"), ("Most requested subject", "top_subject"))
+        labels = (("Active users", "active_users"), ("All doubts", "total_doubts"), ("Open doubts", "open_doubts"), ("Most requested subject", "top_subject"))
         for title, key in labels:
             card = tk.Frame(self.metrics, bg=style.BG_CARD, bd=1, relief="solid")
             card.pack(side="left", fill="x", expand=True, padx=4)
@@ -52,7 +52,7 @@ class AdminDashboardFrame(tk.Frame):
 
     def _build_doubts_tab(self, notebook):
         tab = tk.Frame(notebook, bg=style.BG_CARD, padx=12, pady=12)
-        notebook.add(tab, text="Doubt oversight")
+        notebook.add(tab, text="Escalation queue")
         table, self.doubt_tree = self._tree(tab, ("ID", "Student", "Subject", "Assigned to", "Severity", "Points", "Status"), {"ID": 48, "Student": 110, "Subject": 120, "Assigned to": 120, "Severity": 85, "Points": 70, "Status": 95})
         table.pack(side="left", fill="both", expand=True, padx=(0, 12))
         self.doubt_tree.bind("<<TreeviewSelect>>", self._on_doubt_selected)
@@ -60,13 +60,13 @@ class AdminDashboardFrame(tk.Frame):
         actions = tk.LabelFrame(tab, text="Selected doubt", font=style.FONT_TITLE, bg=style.BG_CARD, fg=style.FG_DARK, padx=10, pady=10, width=245)
         actions.pack(side="right", fill="y")
         actions.pack_propagate(False)
-        self.doubt_detail = tk.StringVar(value="Choose a doubt to manage its assignment or status.")
+        self.doubt_detail = tk.StringVar(value="Only unanswered doubts that exceed 48 hours appear here.")
         tk.Label(actions, textvariable=self.doubt_detail, wraplength=210, justify="left", font=style.FONT_BODY, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w", pady=(0, 12))
-        tk.Label(actions, text="Assign resolver", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w")
+        tk.Label(actions, text="Intervene / reassign", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w")
         self.teacher_var = tk.StringVar()
         self.teacher_combo = ttk.Combobox(actions, textvariable=self.teacher_var, state="readonly")
         self.teacher_combo.pack(fill="x", pady=(2, 8))
-        self._button(actions, "Assign / reassign", self.assign_selected).pack(fill="x", pady=(0, 12))
+        self._button(actions, "Reassign after intervention", self.assign_selected).pack(fill="x", pady=(0, 12))
         tk.Label(actions, text="Set status", font=style.FONT_LABEL, bg=style.BG_CARD, fg=style.FG_MUTED).pack(anchor="w")
         self.status_var = tk.StringVar(value="Pending")
         ttk.Combobox(actions, textvariable=self.status_var, values=self.STATUSES, state="readonly").pack(fill="x", pady=(2, 8))
@@ -117,7 +117,7 @@ class AdminDashboardFrame(tk.Frame):
         for key, value in self.store.get_admin_metrics().items():
             self.metric_vars[key].set(value)
         self.doubt_tree.delete(*self.doubt_tree.get_children())
-        for doubt in self.store.get_all_doubts():
+        for doubt in self.store.get_escalated_doubts():
             self.doubt_tree.insert("", "end", iid=str(doubt["id"]), values=(doubt["id"], doubt["student"], doubt["subject"], doubt["teacher"] or "Unassigned", doubt["severity"], f"⭐ {doubt.get('student_points', 0)}", doubt["status"]))
         self.user_tree.delete(*self.user_tree.get_children())
         for user in self.store.get_users():
